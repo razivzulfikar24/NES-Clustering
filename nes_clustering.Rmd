@@ -1,0 +1,237 @@
+---
+title: "Penggerombolan Kabupaten/Kota di Provinsi Banten dan DKI Jakarta Berdasarkan 8 Standar Nasional Pendidikan"
+author:
+  - "Author(s):"
+  - " - M Raziv Zulfikar"
+  - " - Ferista Wahyu Saputri"
+  - " - Tantri Gustina Dewi"
+  - " - Aryo Seto Ramadhan"
+  - " - Irpando Sagala"
+date: "2022-11-28"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+    number_sections: false
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 9,
+  fig.height = 5
+)
+
+set.seed(123)
+```
+
+```{r libraries}
+library(readxl)
+library(tidyverse)
+library(factoextra)
+library(clValid)
+library(fmsb)
+```
+
+# 1. Pendahuluan
+
+Standar Nasional Pendidikan (SNP) merupakan kriteria minimal mengenai sistem pendidikan di seluruh wilayah Indonesia. Pemerataan kualitas pendidikan dapat dianalisis melalui pengelompokan wilayah berdasarkan capaian 8 standar nasional pendidikan.
+
+Penelitian ini bertujuan untuk mengelompokkan kabupaten/kota di Provinsi Banten dan DKI Jakarta menggunakan metode Hierarchical Clustering dengan algoritma:
+- Average Linkage
+- Centroid Linkage
+
+Jumlah gerombol optimal ditentukan menggunakan metode Silhouette dan dilakukan perbandingan menggunakan Cophenetic Correlation.
+
+# 2. Data
+Data yang digunakan adalah data nilai standar nasional pendidikan dengan individunya adalah sekolah dari tingkat SD sampai SMA di kabupaten/kota provinsi BANTEN DAN DKI dan  peubah nya rata-rata skor 8 standar nasional pendidikan.
+```{r load-data}
+data_raw <- read_xlsx("C:/Users/MRZ/Documents/MyProjects/NES-Clustering/data_snp.xlsx")
+data_raw <- subset(data_raw, nama_provinsi != "JAWA BARAT")
+head(data_raw)
+```
+
+```{r}
+variabel_snp <- c(
+  "standar_isi",
+  "standar_proses",
+  "standar_kompetensi",
+  "standar_pendidik",
+  "standar_sarana",
+  "standar_pengelolaan",
+  "standar_biaya",
+  "standar_nilai"
+)
+
+data_project <- aggregate(
+  data_raw[, variabel_snp],
+  by = list(
+    nama_provinsi = data_raw$nama_provinsi,
+    nama_kota = data_raw$nama_kota
+  ),
+  FUN = mean,
+  na.rm = TRUE
+)
+head(data_project)
+```
+
+# 3. Exploratory Data Analysis
+## 3.1 Statistik Deskriptif
+```{r descriptive-statistics}
+stat_snp <- data.frame(
+  Minimum = apply(data_raw[, variabel_snp], 2, min),
+  Rata_rata = apply(data_raw[, variabel_snp], 2, mean),
+  Maksimum = apply(data_raw[, variabel_snp], 2, max),
+  Simpangan_baku = apply(data_raw[, variabel_snp], 2, sd)
+)
+stat_snp <- t(stat_snp)
+colnames(stat_snp) <- c("SI", "SPR", "SKL", "SPT", "SSP", "SPL", "SB", "SPN")
+stat_snp
+```
+
+## 3.2 Boxplot Perbandingan Skor SNP Provinsi Banten dan DKI Jakarta
+```{r}
+data_long <- data_project %>%
+  pivot_longer(
+    cols = all_of(variabel_snp),
+    names_to = "variable",
+    values_to = "value"
+  )
+
+ggplot(data_long,
+       aes(x = variable,
+           y = value,
+           fill = nama_provinsi)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +
+  theme_classic() +
+  labs(
+    title = "Boxplot Perbandingan Skor SNP",
+    x = "",
+    y = "Value",
+    fill = "Provinsi"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.3)
+  ) + scale_fill_brewer(palette = "Set1")
+```
+
+## 3.3 Boxplot Skor SNP Kota/Kabupaten di Provinsi Banten dan DKI Jakarta
+```{r}
+ggplot(data_long,
+       aes(x = variable,
+           y = value,
+           fill = variable)) +
+  geom_boxplot() +
+  theme_classic() +
+  labs(
+    x = "",
+    y = "value"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.title = element_blank()
+  ) + scale_fill_brewer(palette = "Set1")
+```
+
+# 4. Hierarchical Clustering {.tabset .tabset-pills}
+```{r}
+data_cluster <- data_project[, variabel_snp]
+linkage_methods <- c("average","centroid")
+hc_project_dend <- lapply(linkage_methods, function(i)
+  hclust(dist(data_cluster,method = 'euclidean'),method = i)
+)
+```
+
+## 4.1 Average Linkage
+```{r average-dend}
+fviz_dend(hc_project_dend[[1]])
+
+# Cophenetic Correlation
+avg_coph <- cophenetic(hc_project_dend[[1]])
+cor(avg_coph, dist(data_cluster, method = "euclidean"))
+```
+
+## 4.2 Centroid Linkage
+```{r centroid-dend}
+fviz_dend(hc_project_dend[[2]])
+
+# Cophenetic Correlation
+centroid_coph <- cophenetic(hc_project_dend[[2]])
+cor(centroid_coph, dist(data_cluster, method = "euclidean"))
+```
+
+# 5. Mencari nilai K (Silhouette Method) {.tabset .tabset-pills}
+## 5.1 Average Linkage
+```{r silhouette-average}
+fviz_nbclust(
+  data_cluster,
+  FUNcluster = hcut,
+  method = "silhouette",
+  hc_method = "average",
+  hc_metric = "euclidean"
+)
+```
+Grafik diatas menunjukkan jumlah gerombol yang paling optimal untuk average linkage dengan jarak euclidian menurut metode silhoutte adalah 2 gerombol
+
+## 5.2 Centroid Linkage
+```{r silhouette-centroid}
+fviz_nbclust(
+  data_cluster,
+  FUNcluster = hcut,
+  method = "silhouette",
+  hc_method = "centroid",
+  hc_metric = "euclidean"
+)
+```
+Grafik diatas menunjukkan jumlah gerombol yang paling optimal untuk centroid linkage dengan jarak euclidian menurut metode silhoutte adalah 2 gerombol
+
+# 6. Penerapan Gerombol K=2 {.tabset .tabset-pills}
+## 6.1 Average Linkage
+```{r}
+par(mfrow=c(1,1))
+hc_project_average <- eclust(data_cluster,stand = TRUE,FUNcluster = "hclust",k=2,hc_method = "average",hc_metric = "euclidean",graph = F)
+hc_project_average$cluster
+fviz_dend(hc_project_dend[[1]], k = 2, k_colors = "jco", rect = T, 
+          main = "Average Linkage Cluster")
+```
+
+## 6.2 Centroid Linkage
+```{r}
+hc_project_centroid <- eclust(data_cluster,stand = TRUE,FUNcluster = "hclust",k=2,hc_method = "centroid",hc_metric = "euclidean",graph = F)
+hc_project_centroid$cluster
+fviz_dend(hc_project_dend[[2]], k = 2, k_colors = "jco", rect = T, 
+          main = "Centroid Linkage Cluster")
+```
+
+# 7. Cluster Plot dan Interpretasi {.tabset .tabset-pills}
+## 7.1 Average Linkage
+```{r}
+fviz_cluster(hc_project_average,palette = "jco",ggtheme = theme_minimal())
+aggregate(data_cluster,by =list(gerombol=hc_project_average$cluster),
+          FUN = mean)
+```
+Cluster 1 merupakan kabupaten/kota dengan keselurahan rata rata nilai 8 standar nasional yang lebih tinggi dari keseluruhan rata rata nilai 8 standar nasional pada cluster 2. Secara eksploratif pada cluster plot tidak mengindikasikan adanya gerombol yang saling tumpang tindih
+
+## 7.2 Centroid Linkage
+```{r}
+fviz_cluster(hc_project_centroid,palette = "jco",ggtheme = theme_minimal())
+aggregate(data_cluster,by =list(gerombol=hc_project_centroid$cluster),
+          FUN = mean)
+```
+Sama seperti Average Linkage, Cluster 1 pada Centroid Linkage merupakan kabupaten/kota dengan keselurahan rata rata nilai 8 standar nasional yang lebih tinggi dari keseluruhan rata rata nilai 8 standar nasional pada cluster 2. Cluster plot pada metode Centroid Linkage sama persis dengan Cluster plot pada Average Linkage, tidak ada indikasi gerombol yang tumpang tindih
+
+# 8. Cluster Final
+```{r}
+cluster_final <- cutree(hc_project_average, k = 2)
+data_project$cluster <- cluster_final
+
+split(data_project$nama_kota, data_project$cluster)
+```
+
